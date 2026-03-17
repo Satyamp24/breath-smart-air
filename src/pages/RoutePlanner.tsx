@@ -1,5 +1,4 @@
-import { useState, useCallback } from 'react';
-import { MapContainer, TileLayer, Polyline, Marker, Popup, useMap } from 'react-leaflet';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useAppStore } from '@/store/useAppStore';
@@ -9,33 +8,66 @@ import { Button } from '@/components/ui/button';
 import { motion } from 'framer-motion';
 import { Navigation, MapPin, Clock, Wind, Zap, Route as RouteIcon } from 'lucide-react';
 import { toast } from 'sonner';
-import type { RouteData } from '@/store/useAppStore';
-
-// Fix leaflet default icon
-delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
-  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
-});
-
-function FitBounds({ routes }: { routes: RouteData[] }) {
-  const map = useMap();
-  if (routes.length > 0) {
-    const allCoords = routes.flatMap((r) => r.coordinates);
-    if (allCoords.length > 0) {
-      const bounds = L.latLngBounds(allCoords.map((c) => L.latLng(c[0], c[1])));
-      map.fitBounds(bounds, { padding: [40, 40] });
-    }
-  }
-  return null;
-}
 
 const RoutePlanner = () => {
   const { routes, setRoutes, selectedRouteId, setSelectedRouteId } = useAppStore();
   const [source, setSource] = useState('');
   const [destination, setDestination] = useState('');
   const [loading, setLoading] = useState(false);
+  const mapRef = useRef<L.Map | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const polylinesRef = useRef<L.Polyline[]>([]);
+
+  // Initialize map
+  useEffect(() => {
+    if (!containerRef.current || mapRef.current) return;
+
+    const map = L.map(containerRef.current, {
+      center: [28.6139, 77.209],
+      zoom: 12,
+      zoomControl: false,
+    });
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; OSM',
+    }).addTo(map);
+
+    mapRef.current = map;
+
+    return () => {
+      map.remove();
+      mapRef.current = null;
+    };
+  }, []);
+
+  // Draw routes
+  useEffect(() => {
+    if (!mapRef.current) return;
+
+    // Clear old polylines
+    polylinesRef.current.forEach((p) => p.remove());
+    polylinesRef.current = [];
+
+    if (routes.length === 0) return;
+
+    routes.forEach((route) => {
+      const polyline = L.polyline(route.coordinates, {
+        color: route.color,
+        weight: selectedRouteId === route.id ? 6 : 3,
+        opacity: selectedRouteId === route.id ? 1 : 0.4,
+      }).addTo(mapRef.current!);
+
+      polyline.on('click', () => setSelectedRouteId(route.id));
+      polylinesRef.current.push(polyline);
+    });
+
+    // Fit bounds
+    const allCoords = routes.flatMap((r) => r.coordinates);
+    if (allCoords.length > 0) {
+      const bounds = L.latLngBounds(allCoords.map((c) => L.latLng(c[0], c[1])));
+      mapRef.current.fitBounds(bounds, { padding: [40, 40] });
+    }
+  }, [routes, selectedRouteId]);
 
   const planRoute = useCallback(async () => {
     if (!source.trim() || !destination.trim()) {
@@ -64,8 +96,6 @@ const RoutePlanner = () => {
     }
     setLoading(false);
   }, [source, destination, setRoutes, setSelectedRouteId]);
-
-  const selectedRoute = routes.find((r) => r.id === selectedRouteId);
 
   return (
     <div className="h-screen flex flex-col pb-20">
@@ -142,32 +172,7 @@ const RoutePlanner = () => {
       )}
 
       <div className="flex-1 relative">
-        <MapContainer
-          center={[28.6139, 77.209]}
-          zoom={12}
-          className="h-full w-full"
-          zoomControl={false}
-        >
-          <TileLayer
-            attribution='&copy; OSM'
-            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-          />
-          {routes.length > 0 && <FitBounds routes={routes} />}
-          {routes.map((route) => (
-            <Polyline
-              key={route.id}
-              positions={route.coordinates}
-              pathOptions={{
-                color: route.color,
-                weight: selectedRouteId === route.id ? 6 : 3,
-                opacity: selectedRouteId === route.id ? 1 : 0.4,
-              }}
-              eventHandlers={{
-                click: () => setSelectedRouteId(route.id),
-              }}
-            />
-          ))}
-        </MapContainer>
+        <div ref={containerRef} className="h-full w-full" />
       </div>
     </div>
   );

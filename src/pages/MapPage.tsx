@@ -1,23 +1,13 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMapEvents, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useAppStore } from '@/store/useAppStore';
-import { fetchAqiByCoords, getAqiLevel } from '@/lib/api';
+import { fetchAqiByCoords, getAqiLevel, searchCity } from '@/lib/api';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Search, Crosshair } from 'lucide-react';
-import { searchCity } from '@/lib/api';
+import { Search } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
-
-// Fix leaflet default icon
-delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
-  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
-});
 
 function createAqiIcon(aqi: number) {
   const level = getAqiLevel(aqi);
@@ -29,11 +19,32 @@ function createAqiIcon(aqi: number) {
   });
 }
 
-function MapClickHandler() {
-  const { addMapMarker, setCurrentAqi, setSelectedLocation } = useAppStore();
+const MapPage = () => {
+  const { mapCenter, mapZoom, mapMarkers, addMapMarker, setMapCenter, setMapZoom, currentAqi, setCurrentAqi, setSelectedLocation } = useAppStore();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searching, setSearching] = useState(false);
+  const mapRef = useRef<L.Map | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const markersLayerRef = useRef<L.LayerGroup | null>(null);
+  const heatLayerRef = useRef<L.Layer | null>(null);
 
-  useMapEvents({
-    click: async (e) => {
+  // Initialize map
+  useEffect(() => {
+    if (!containerRef.current || mapRef.current) return;
+
+    const map = L.map(containerRef.current, {
+      center: mapCenter,
+      zoom: mapZoom,
+      zoomControl: false,
+    });
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>',
+    }).addTo(map);
+
+    markersLayerRef.current = L.layerGroup().addTo(map);
+
+    map.on('click', async (e: L.LeafletMouseEvent) => {
       const { lat, lng } = e.latlng;
       setSelectedLocation({ lat, lng });
       toast.info('Fetching AQI...');
@@ -41,51 +52,50 @@ function MapClickHandler() {
       addMapMarker({ lat, lng, aqi: aqi.aqi });
       setCurrentAqi(aqi);
       toast.success(`AQI: ${aqi.aqi} (${getAqiLevel(aqi.aqi).label})`);
-    },
-  });
-  return null;
-}
-
-function HeatmapLayer() {
-  const map = useMap();
-  const { mapMarkers } = useAppStore();
-  const layerRef = useRef<L.Layer | null>(null);
-
-  useEffect(() => {
-    if (mapMarkers.length < 2) return;
-
-    import('leaflet.heat').then(() => {
-      if (layerRef.current) map.removeLayer(layerRef.current);
-      const points: [number, number, number][] = mapMarkers.map((m) => [m.lat, m.lng, m.aqi / 500]);
-      layerRef.current = (L as unknown as { heatLayer: typeof L.heatLayer }).heatLayer(points, {
-        radius: 25,
-        blur: 20,
-        maxZoom: 17,
-        gradient: { 0.2: '#00e676', 0.5: '#ffab00', 0.8: '#ff1744', 1: '#880e4f' },
-      }).addTo(map);
     });
 
+    mapRef.current = map;
+
     return () => {
-      if (layerRef.current) map.removeLayer(layerRef.current);
+      map.remove();
+      mapRef.current = null;
     };
-  }, [mapMarkers, map]);
+  }, []);
 
-  return null;
-}
-
-function MapCenterUpdater() {
-  const map = useMap();
-  const { mapCenter, mapZoom } = useAppStore();
+  // Update markers
   useEffect(() => {
-    map.setView(mapCenter, mapZoom);
-  }, [mapCenter, mapZoom, map]);
-  return null;
-}
+    if (!markersLayerRef.current) return;
+    markersLayerRef.current.clearLayers();
 
-const MapPage = () => {
-  const { mapCenter, mapZoom, mapMarkers, setMapCenter, setMapZoom, currentAqi } = useAppStore();
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searching, setSearching] = useState(false);
+    mapMarkers.forEach((m) => {
+      const marker = L.marker([m.lat, m.lng], { icon: createAqiIcon(m.aqi) });
+      marker.bindPopup(`<div style="text-align:center"><b>AQI: ${m.aqi}</b><br/>${getAqiLevel(m.aqi).label}</div>`);
+      markersLayerRef.current!.addLayer(marker);
+    });
+
+    // Heatmap
+    if (mapMarkers.length >= 2 && mapRef.current) {
+      import('leaflet.heat').then(() => {
+        if (heatLayerRef.current && mapRef.current) {
+          mapRef.current.removeLayer(heatLayerRef.current);
+        }
+        const points: [number, number, number][] = mapMarkers.map((m) => [m.lat, m.lng, m.aqi / 500]);
+        heatLayerRef.current = (L as any).heatLayer(points, {
+          radius: 25,
+          blur: 20,
+          maxZoom: 17,
+          gradient: { 0.2: '#00e676', 0.5: '#ffab00', 0.8: '#ff1744', 1: '#880e4f' },
+        }).addTo(mapRef.current!);
+      });
+    }
+  }, [mapMarkers]);
+
+  // Update center
+  useEffect(() => {
+    if (mapRef.current) {
+      mapRef.current.setView(mapCenter, mapZoom);
+    }
+  }, [mapCenter, mapZoom]);
 
   const handleSearch = useCallback(async () => {
     if (!searchQuery.trim()) return;
@@ -134,30 +144,7 @@ const MapPage = () => {
       </motion.div>
 
       <div className="flex-1 relative">
-        <MapContainer
-          center={mapCenter}
-          zoom={mapZoom}
-          className="h-full w-full"
-          zoomControl={false}
-        >
-          <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>'
-            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-          />
-          <MapClickHandler />
-          <HeatmapLayer />
-          <MapCenterUpdater />
-          {mapMarkers.map((m, i) => (
-            <Marker key={i} position={[m.lat, m.lng]} icon={createAqiIcon(m.aqi)}>
-              <Popup>
-                <div className="text-center">
-                  <p className="font-bold">AQI: {m.aqi}</p>
-                  <p className="text-xs">{getAqiLevel(m.aqi).label}</p>
-                </div>
-              </Popup>
-            </Marker>
-          ))}
-        </MapContainer>
+        <div ref={containerRef} className="h-full w-full" />
       </div>
     </div>
   );
