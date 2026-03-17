@@ -14,7 +14,102 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      alerts: {
+        Row: {
+          created_at: string
+          id: string
+          is_read: boolean | null
+          message: string
+          title: string
+          type: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_read?: boolean | null
+          message: string
+          title: string
+          type: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_read?: boolean | null
+          message?: string
+          title?: string
+          type?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          age: number | null
+          city: string | null
+          created_at: string
+          has_allergies: boolean | null
+          has_asthma: boolean | null
+          has_breathing_issues: boolean | null
+          id: string
+          name: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          age?: number | null
+          city?: string | null
+          created_at?: string
+          has_allergies?: boolean | null
+          has_asthma?: boolean | null
+          has_breathing_issues?: boolean | null
+          id?: string
+          name?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          age?: number | null
+          city?: string | null
+          created_at?: string
+          has_allergies?: boolean | null
+          has_asthma?: boolean | null
+          has_breathing_issues?: boolean | null
+          id?: string
+          name?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      symptoms: {
+        Row: {
+          id: string
+          notes: string | null
+          recorded_at: string
+          severity: number | null
+          symptom: string
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          notes?: string | null
+          recorded_at?: string
+          severity?: number | null
+          symptom: string
+          user_id: string
+        }
+        Update: {
+          id?: string
+          notes?: string | null
+          recorded_at?: string
+          severity?: number | null
+          symptom?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
